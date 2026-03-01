@@ -1,5 +1,5 @@
 
-```markdown
+
 # OpenAI-Compatible TTS API (pocket-tts)
 
 This is an OpenAI-compatible Text-to-Speech (TTS) API server built with FastAPI and `pocket-tts`. It functions as a drop-in replacement for OpenAI's audio endpoints, making it perfectly suited for applications like OpenWebUI.
@@ -14,12 +14,12 @@ This is an OpenAI-compatible Text-to-Speech (TTS) API server built with FastAPI 
 Follow these steps to create a virtual environment using `uv`, install the dependencies from your `requirements.txt`, and start the server. 
 
 *(Note: Make sure `requirements.txt` and `openai_tts_server.py` are located in your working directory before running these commands).*
-```
+
 # Create the virtual environment
-```uv venv pocket_tts```
+```markdown uv venv pocket_tts```
 
 # Navigate into the environment directory
-```cd pocket_tts```
+```markdown cd pocket_tts```
 
 # Activate the environment (Linux/macOS)
 # Note: On Windows, use `Scripts\activate` instead
