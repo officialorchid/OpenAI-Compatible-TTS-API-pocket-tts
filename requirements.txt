@@ -2,3 +2,4 @@ uvicorn
 fastapi
 pocket-tts
 soundfile
+pocket-tts
