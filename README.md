@@ -211,7 +211,7 @@ audio.play();
 | `opus` | ✅ Native | Low bitrate, high quality |
 | `pcm` | ✅ Native | Raw PCM data |
 | `mp3` | ✅ Native | Best compatibility |
-| `aac` | ⚠️ Fallback | Returns WAV (no FFmpeg) |
+| `aac` | ✅ Native | Best compatibility |
 
 **Why no MP3/AAC encoding?** This implementation intentionally avoids FFmpeg dependencies for maximum portability. Use `wav`, `flac`, or `opus` for best results. Most modern browsers and players handle these formats natively.
 
