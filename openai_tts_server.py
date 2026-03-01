@@ -519,7 +519,7 @@ if __name__ == "__main__":
     print(f"""
 ╔════════════════════════════════════════════════════════════╗
 ║  OpenAI-Compatible TTS API (pocket-tts)                    ║
-║  No FFmpeg Required - Pure Python Implementation           ║
+║  Pure Python Implementation                                ║
 ╠════════════════════════════════════════════════════════════╣
 ║  Server:     http://localhost:{PORT}/v1                      ║
 ╠════════════════════════════════════════════════════════════╣
