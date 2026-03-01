@@ -38,7 +38,7 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 uv pip install -r requirements.txt
 
 # Or use pip
-pip install -r requirements.txt
+#pip install -r requirements.txt
 ```
 
 ### Running the Server
