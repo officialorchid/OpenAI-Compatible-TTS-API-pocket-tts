@@ -48,7 +48,7 @@ uv pip install -r requirements.txt
 uv run openai_tts_server.py
 
 # Or directly with Python
-python openai_tts_server.py
+#python openai_tts_server.py
 ```
 
 The server will start on `http://localhost:8000` by default.
