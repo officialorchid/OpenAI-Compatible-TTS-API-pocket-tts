@@ -232,7 +232,6 @@ uvicorn
 fastapi
 pocket-tts
 soundfile
-numpy
 ```
 
 No FFmpeg, no GPU drivers, no cloud APIs. Just Python.
