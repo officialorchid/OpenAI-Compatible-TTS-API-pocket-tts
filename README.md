@@ -8,7 +8,6 @@ This is an OpenAI-compatible Text-to-Speech (TTS) API server built with FastAPI 
 
 * **Python 3**
 * **uv**: For fast Python package and environment management.
-* **FFmpeg**: Required on your system to convert raw audio into formats like `mp3`, `opus`, `aac`, and `flac`.
 
 ## Setup & Installation
 
@@ -26,6 +25,13 @@ cd pocket_tts
 # Activate the environment (Linux/macOS)
 # Note: On Windows, use `Scripts\activate` instead
 source bin/activate
+
+
+# Clone the repository
+git clone https://github.com/officialorchid/OpenAI-Compatible-TTS-API-pocket-tts.git
+
+# Navigate into the project directory
+cd OpenAI-Compatible-TTS-API-pocket-tts
 
 # Install the required dependencies
 uv pip install -r requirements.txt
