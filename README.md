@@ -16,7 +16,7 @@ Follow these steps to create a virtual environment using `uv`, install the depen
 *(Note: Make sure `requirements.txt` and `openai_tts_server.py` are located in your working directory before running these commands).*
 
 # Create the virtual environment
-uv venv pocket_tts```
+uv venv pocket_tts
 
 # Navigate into the environment directory
 cd pocket_tts
