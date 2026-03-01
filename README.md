@@ -1,4 +1,4 @@
-
+```markdown
 
 # OpenAI-Compatible TTS API (pocket-tts)
 
@@ -16,28 +16,28 @@ Follow these steps to create a virtual environment using `uv`, install the depen
 *(Note: Make sure `requirements.txt` and `openai_tts_server.py` are located in your working directory before running these commands).*
 
 # Create the virtual environment
-```markdown uv venv pocket_tts```
+uv venv pocket_tts```
 
 # Navigate into the environment directory
-```markdown cd pocket_tts```
+cd pocket_tts
 
 # Activate the environment (Linux/macOS)
 # Note: On Windows, use `Scripts\activate` instead
-```source bin/activate```
+source bin/activate
 
 
 # Clone the repository
-```git clone https://github.com/officialorchid/OpenAI-Compatible-TTS-API-pocket-tts.git```
+git clone https://github.com/officialorchid/OpenAI-Compatible-TTS-API-pocket-tts.git
 
 # Navigate into the project directory
-```cd OpenAI-Compatible-TTS-API-pocket-tts```
+cd OpenAI-Compatible-TTS-API-pocket-tts
 
 # Install the required dependencies
-```uv pip install -r requirements.txt```
+uv pip install -r requirements.txt
 
 # Run the API server
-```uv run openai_tts_server.py```
-
+uv run openai_tts_server.py
+```
 ## Configuration
 
 You can customize the server's behavior using the following environment variables:
