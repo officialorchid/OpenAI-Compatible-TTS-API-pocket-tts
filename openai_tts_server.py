@@ -10,7 +10,6 @@ import io
 import json
 import logging
 import os
-import subprocess
 import sys
 import traceback
 from contextlib import asynccontextmanager
@@ -22,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 import soundfile as sf
+import numpy as np
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -64,24 +64,25 @@ MEDIA_TYPES = {
     "pcm": "audio/pcm",
 }
 
-FFMPEG_FORMATS = {
-    "mp3": ("mp3", "libmp3lame"),
-    "opus": ("ogg", "opus"),
-    "aac": ("adts", "aac"),
-    "flac": ("flac", "flac"),
+# SoundFile format mapping (subset of formats supported natively)
+SOUNDFILE_FORMATS = {
+    "wav": "WAV",
+    "flac": "FLAC",
+    "opus": "OGG",  # Opus is stored in OGG container
+    "ogg": "OGG",
 }
 
 
 class SpeechRequest(BaseModel):
     """OpenAI-compatible speech request - permissive for OpenWebUI"""
     model_config = ConfigDict(extra="ignore")  # Ignore extra fields
-    
+
     model: Optional[str] = Field(default="tts-1")
     input: str = Field(...)
     voice: str = Field(default="alloy")
     response_format: Optional[str] = Field(default="mp3")
     speed: Optional[float] = Field(default=1.0)
-    
+
     @field_validator("voice", mode="before")
     @classmethod
     def map_voice(cls, v: Any) -> str:
@@ -89,7 +90,7 @@ class SpeechRequest(BaseModel):
             return "alloy"
         v = str(v).strip()
         return VOICE_MAPPING.get(v, v)
-    
+
     @field_validator("input", mode="before")
     @classmethod
     def validate_input(cls, v: Any) -> str:
@@ -99,7 +100,7 @@ class SpeechRequest(BaseModel):
         if not s:
             raise ValueError("input cannot be empty")
         return s
-    
+
     @field_validator("response_format", mode="before")
     @classmethod
     def validate_format(cls, v: Any) -> str:
@@ -108,7 +109,7 @@ class SpeechRequest(BaseModel):
         v = str(v).lower()
         valid = ["mp3", "opus", "aac", "flac", "wav", "pcm"]
         return v if v in valid else "mp3"
-    
+
     @field_validator("speed", mode="before")
     @classmethod
     def validate_speed(cls, v: Any) -> float:
@@ -137,14 +138,15 @@ def tensor_to_numpy(audio_tensor):
         return audio_tensor.numpy()
     # If it's a list or other sequence
     if hasattr(audio_tensor, '__iter__'):
-        # Try to convert using soundfile's buffer handling
-        return audio_tensor
+        return np.array(audio_tensor)
     return audio_tensor
 
 
 def flatten_audio(audio_data):
     """Flatten multi-dimensional audio to 1D"""
     # Handle different input types
+    if isinstance(audio_data, np.ndarray):
+        return audio_data.flatten()
     if hasattr(audio_data, 'flatten'):
         return audio_data.flatten()
     if hasattr(audio_data, 'reshape'):
@@ -155,26 +157,61 @@ def flatten_audio(audio_data):
         return audio_data.reshape(size)
     # If it's a list of lists, flatten manually
     if isinstance(audio_data, (list, tuple)) and len(audio_data) > 0 and isinstance(audio_data[0], (list, tuple)):
-        return [item for sublist in audio_data for item in sublist]
-    return audio_data
+        return np.array([item for sublist in audio_data for item in sublist])
+    return np.array(audio_data)
+
+
+def resample_audio(audio_data: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarray:
+    """Simple resampling using linear interpolation"""
+    if orig_sr == target_sr:
+        return audio_data
+
+    # Calculate resampling ratio
+    ratio = target_sr / orig_sr
+    new_length = int(len(audio_data) * ratio)
+
+    # Use numpy interpolation
+    old_indices = np.linspace(0, len(audio_data) - 1, len(audio_data))
+    new_indices = np.linspace(0, len(audio_data) - 1, new_length)
+
+    return np.interp(new_indices, old_indices, audio_data)
+
+
+def apply_speed(audio_data: np.ndarray, speed: float, sample_rate: int) -> tuple:
+    """Apply speed change by resampling and adjusting sample rate"""
+    if speed == 1.0:
+        return audio_data, sample_rate
+
+    # Resample to change speed (higher speed = fewer samples)
+    new_length = int(len(audio_data) / speed)
+    old_indices = np.linspace(0, len(audio_data) - 1, len(audio_data))
+    new_indices = np.linspace(0, len(audio_data) - 1, new_length)
+
+    resampled = np.interp(new_indices, old_indices, audio_data)
+
+    # Adjust sample rate to maintain pitch (or don't adjust for speed effect)
+    # For TTS speed effect, we keep original sample rate (resample approach)
+    new_rate = int(sample_rate * speed)
+
+    return resampled, new_rate
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Load TTS model on startup"""
     global tts_model
-    
+
     if not POCKET_TTS_AVAILABLE:
         logger.error("❌ pocket-tts not available")
         yield
         return
-    
+
     logger.info("🚀 Loading Pocket TTS model...")
     try:
         loop = asyncio.get_event_loop()
         tts_model = await loop.run_in_executor(None, TTSModel.load_model)
         logger.info(f"✅ Model loaded on device: {tts_model.device}")
-        
+
         # Pre-load default voice
         logger.info("🎙️  Pre-loading default voice...")
         default_state = await loop.run_in_executor(
@@ -183,20 +220,20 @@ async def lifespan(app: FastAPI):
         )
         voice_states["alba"] = default_state
         logger.info("✅ Ready")
-        
+
     except Exception as e:
         logger.exception("Failed to load model")
         raise
-    
+
     yield
-    
+
     logger.info("🛑 Shutting down...")
 
 
 app = FastAPI(
     title="OpenAI-Compatible TTS API",
-    description="OpenAI Audio API for pocket-tts",
-    version="1.0.0",
+    description="OpenAI Audio API for pocket-tts (No FFmpeg required)",
+    version="1.1.0",
     lifespan=lifespan,
 )
 
@@ -221,7 +258,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 def get_cache_key(text: str, voice: str, format: str, speed: float) -> str:
     """Generate cache key"""
-    key = f"{text}|{voice}|{format}|{speed}|v1"
+    key = f"{text}|{voice}|{format}|{speed}|v2"
     return hashlib.sha256(key.encode()).hexdigest()[:32]
 
 
@@ -229,7 +266,7 @@ async def get_or_create_voice_state(voice: str) -> any:
     """Get cached voice state or create new one"""
     if voice in voice_states:
         return voice_states[voice]
-    
+
     if voice in BUILTIN_VOICES:
         loop = asyncio.get_event_loop()
         state = await loop.run_in_executor(
@@ -238,7 +275,7 @@ async def get_or_create_voice_state(voice: str) -> any:
         )
         voice_states[voice] = state
         return state
-    
+
     # Check for custom voice
     voice_path = None
     if os.path.exists(os.path.join(VOICES_DIR, f"{voice}.wav")):
@@ -247,12 +284,12 @@ async def get_or_create_voice_state(voice: str) -> any:
         voice_path = os.path.join(VOICES_DIR, f"{voice}.safetensors")
     elif os.path.exists(voice):
         voice_path = voice
-    
+
     if not voice_path:
         # Fallback to alba if voice not found
         logger.warning(f"Voice '{voice}' not found, using 'alba'")
         return await get_or_create_voice_state("alba")
-    
+
     loop = asyncio.get_event_loop()
     state = await loop.run_in_executor(
         None,
@@ -262,86 +299,69 @@ async def get_or_create_voice_state(voice: str) -> any:
     return state
 
 
-async def generate_audio(text: str, voice: str) -> bytes:
-    """Generate raw WAV audio"""
+async def generate_audio(text: str, voice: str, speed: float = 1.0, format: str = "wav") -> bytes:
+    """Generate audio in specified format"""
     if not tts_model:
         raise HTTPException(status_code=503, detail="TTS model not loaded")
-    
+
     voice_state = await get_or_create_voice_state(voice)
     loop = asyncio.get_event_loop()
-    
+
     def _generate():
+        # Generate raw audio
         audio = tts_model.generate_audio(voice_state, text)
-        buffer = io.BytesIO()
-        
-        # Convert tensor/array to format soundfile can handle
+
+        # Convert to numpy array
         audio_data = tensor_to_numpy(audio)
         audio_data = flatten_audio(audio_data)
-        
-        # Ensure it's a proper array format for soundfile
-        # soundfile can handle lists, numpy arrays, and buffer objects
-        sf.write(buffer, audio_data, tts_model.sample_rate, format='WAV')
+
+        # Ensure float32 for processing
+        if audio_data.dtype != np.float32:
+            audio_data = audio_data.astype(np.float32)
+
+        # Apply speed adjustment
+        audio_data, adjusted_rate = apply_speed(audio_data, speed, tts_model.sample_rate)
+
+        buffer = io.BytesIO()
+
+        # Handle different output formats
+        if format == "pcm":
+            # Raw PCM data (16-bit signed integer)
+            audio_int16 = (audio_data * 32767).astype(np.int16)
+            buffer.write(audio_int16.tobytes())
+        elif format in SOUNDFILE_FORMATS:
+            # Use soundfile for supported formats
+            sf.write(buffer, audio_data, adjusted_rate, format=SOUNDFILE_FORMATS[format])
+        elif format == "mp3":
+            # MP3 not natively supported by soundfile, use WAV as fallback
+            # Clients should handle WAV->MP3 if needed, or use opus/flac
+            logger.warning("MP3 not natively supported, using WAV format")
+            sf.write(buffer, audio_data, adjusted_rate, format="WAV")
+        elif format == "aac":
+            # AAC not supported, fallback to WAV
+            logger.warning("AAC not natively supported, using WAV format")
+            sf.write(buffer, audio_data, adjusted_rate, format="WAV")
+        else:
+            # Default to WAV
+            sf.write(buffer, audio_data, adjusted_rate, format="WAV")
+
         return buffer.getvalue()
-    
+
     return await loop.run_in_executor(None, _generate)
-
-
-def convert_audio_format(wav_data: bytes, target_format: str, speed: float) -> bytes:
-    """Convert audio format using ffmpeg"""
-    if target_format == "wav" and speed == 1.0:
-        return wav_data
-    
-    if target_format == "pcm":
-        # Strip WAV header (first 44 bytes) to get raw PCM
-        return wav_data[44:] if len(wav_data) > 44 else wav_data
-    
-    if target_format not in FFMPEG_FORMATS:
-        return wav_data
-    
-    out_fmt, codec = FFMPEG_FORMATS[target_format]
-    
-    cmd = [
-        "ffmpeg",
-        "-hide_banner", "-loglevel", "error",
-        "-f", "wav", "-i", "pipe:0",
-    ]
-    
-    if speed != 1.0:
-        cmd.extend(["-filter:a", f"atempo={speed}"])
-    
-    if target_format == "mp3":
-        cmd.extend(["-ar", "44100", "-q:a", "0"])
-    elif target_format in ("aac", "opus"):
-        cmd.extend(["-b:a", "192k"])
-    
-    if codec == "opus":
-        cmd.extend(["-strict", "-2"])
-    
-    cmd.extend(["-f", out_fmt, "-codec:a", codec, "pipe:1"])
-    
-    try:
-        result = subprocess.run(cmd, input=wav_data, capture_output=True, timeout=30)
-        if result.returncode == 0:
-            return result.stdout
-        logger.error(f"FFmpeg error: {result.stderr.decode()}")
-    except Exception as e:
-        logger.error(f"FFmpeg error: {e}")
-    
-    return wav_data
 
 
 @app.get("/v1/voices")
 async def list_voices():
     """List available voices"""
     voices = []
-    
+
     for openai_name, pocket_name in VOICE_MAPPING.items():
         voices.append({
             "voice_id": openai_name,
             "name": f"{pocket_name.title()} ({openai_name})",
             "preview_url": None,
         })
-    
+
     for v in BUILTIN_VOICES:
         if v not in VOICE_MAPPING.values():
             voices.append({
@@ -349,7 +369,7 @@ async def list_voices():
                 "name": v.title(),
                 "preview_url": None,
             })
-    
+
     return {"voices": voices, "object": "list"}
 
 
@@ -363,13 +383,13 @@ async def create_speech(
     try:
         body = await request.body()
         logger.info(f"Raw request body: {body.decode()}")
-        
+
         # Parse JSON manually to handle edge cases
         data = json.loads(body) if body else {}
     except Exception as e:
         logger.error(f"Failed to parse request: {e}")
         data = {}
-    
+
     # Convert to our model
     try:
         speech_req = SpeechRequest(**data)
@@ -379,18 +399,24 @@ async def create_speech(
             status_code=422,
             content={"error": "Validation error", "details": str(e)}
         )
-    
+
     if not POCKET_TTS_AVAILABLE:
         raise HTTPException(status_code=503, detail="pocket-tts not installed")
-    
+
     pocket_voice = VOICE_MAPPING.get(speech_req.voice, speech_req.voice)
-    
+
+    # Determine actual format to generate (handle mp3/aac fallback)
+    actual_format = speech_req.response_format
+    if actual_format in ("mp3", "aac"):
+        # These require external encoding, fallback to wav for now
+        actual_format = "wav"
+
     # Check cache
     cache_key = get_cache_key(
         speech_req.input, pocket_voice, speech_req.response_format, speech_req.speed
     )
-    cache_file = os.path.join(CACHE_DIR, f"{cache_key}.{speech_req.response_format}")
-    
+    cache_file = os.path.join(CACHE_DIR, f"{cache_key}.{actual_format}")
+
     if os.path.exists(cache_file):
         logger.info(f"Cache hit: {cache_key[:8]}...")
         async def stream_cached():
@@ -401,29 +427,32 @@ async def create_speech(
             stream_cached(),
             media_type=MEDIA_TYPES.get(speech_req.response_format, "audio/mpeg")
         )
-    
+
     # Generate
-    logger.info(f"Generating: voice={pocket_voice}, format={speech_req.response_format}")
-    
+    logger.info(f"Generating: voice={pocket_voice}, format={speech_req.response_format}, speed={speech_req.speed}")
+
     async with model_lock:
-        wav_data = await generate_audio(speech_req.input, pocket_voice)
-    
-    final_data = convert_audio_format(wav_data, speech_req.response_format, speech_req.speed)
-    
+        audio_data = await generate_audio(
+            speech_req.input, 
+            pocket_voice, 
+            speed=speech_req.speed,
+            format=actual_format
+        )
+
     # Save cache
     def save_cache():
         with open(cache_file, "wb") as f:
-            f.write(final_data)
+            f.write(audio_data)
         cleanup_old_cache()
-    
+
     background_tasks.add_task(save_cache)
-    
+
     # Stream
     async def stream_response():
         chunk_size = 64 * 1024
-        for i in range(0, len(final_data), chunk_size):
-            yield final_data[i:i + chunk_size]
-    
+        for i in range(0, len(audio_data), chunk_size):
+            yield audio_data[i:i + chunk_size]
+
     return StreamingResponse(
         stream_response(),
         media_type=MEDIA_TYPES.get(speech_req.response_format, "audio/mpeg"),
@@ -441,6 +470,7 @@ async def health():
         "status": "healthy" if tts_model else "loading",
         "model_loaded": tts_model is not None,
         "cached_voices": list(voice_states.keys()),
+        "ffmpeg_required": False,
     }
 
 
@@ -449,11 +479,17 @@ async def root():
     """API info"""
     return {
         "name": "OpenAI-Compatible TTS API",
-        "version": "1.0.0",
+        "version": "1.1.0",
+        "description": "No FFmpeg required - uses soundfile for audio encoding",
         "endpoints": {
             "speech": "/v1/audio/speech",
             "voices": "/v1/voices",
             "health": "/health"
+        },
+        "supported_formats": ["wav", "flac", "opus", "pcm"],
+        "fallback_formats": {
+            "mp3": "wav (fallback)",
+            "aac": "wav (fallback)"
         }
     }
 
@@ -463,7 +499,7 @@ def cleanup_old_cache():
     try:
         files = [(os.path.join(CACHE_DIR, f), os.path.getmtime(os.path.join(CACHE_DIR, f))) 
                  for f in os.listdir(CACHE_DIR) if os.path.isfile(os.path.join(CACHE_DIR, f))]
-        
+
         if len(files) > MAX_CACHE_FILES:
             files.sort(key=lambda x: x[1])
             for old_path, _ in files[:-MAX_CACHE_FILES]:
@@ -479,12 +515,13 @@ if __name__ == "__main__":
     if not POCKET_TTS_AVAILABLE:
         print("❌ Error: pocket-tts not available")
         sys.exit(1)
-    
+
     print(f"""
 ╔════════════════════════════════════════════════════════════╗
 ║  OpenAI-Compatible TTS API (pocket-tts)                    ║
+║  No FFmpeg Required - Pure Python Implementation           ║
 ╠════════════════════════════════════════════════════════════╣
-║  Server:     http://localhost:{PORT}                         ║
+║  Server:     http://localhost:{PORT}/v1                      ║
 ╠════════════════════════════════════════════════════════════╣
 ║  Ready for OpenWebUI!                                      ║
 ╠════════════════════════════════════════════════════════════╣
@@ -498,8 +535,10 @@ if __name__ == "__main__":
 ║   shimmer -> azelma                                        ║
 ║           -> marius                                        ║
 ║           -> javert                                        ║
-║  Every voice can be used.                                  ║
+║                                                            ║
+║  Formats: wav, flac, opus, pcm (native)                    ║
+║           mp3, aac -> wav (fallback)                       ║
 ╚════════════════════════════════════════════════════════════╝
     """)
-    
+
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info")
