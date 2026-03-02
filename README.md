@@ -213,8 +213,6 @@ audio.play();
 | `mp3` | ✅ Native | Best compatibility |
 | `aac` | ✅ Native | Best compatibility |
 
-**Why no MP3/AAC encoding?** This implementation intentionally avoids FFmpeg dependencies for maximum portability. Use `wav`, `flac`, or `opus` for best results. Most modern browsers and players handle these formats natively.
-
 ## 🛠️ Architecture
 
 This server uses a **pure Python** approach without external audio encoding tools:
