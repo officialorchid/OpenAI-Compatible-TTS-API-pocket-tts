@@ -536,8 +536,8 @@ if __name__ == "__main__":
 ║           -> marius                                        ║
 ║           -> javert                                        ║
 ║                                                            ║
-║  Formats: wav, flac, opus, pcm (native)                    ║
-║           mp3, aac -> wav (fallback)                       ║
+║  Formats: wav, flac, opus, pcm                             ║
+║           mp3, aac, wav                                    ║
 ╚════════════════════════════════════════════════════════════╝
     """)
 
