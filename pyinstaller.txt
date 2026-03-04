@@ -1,0 +1,1 @@
+uv run pyinstaller   --onedir   --name tts-server   --noupx   --hidden-import=pocket_tts   --hidden-import=soundfile   --hidden-import=numpy   --collect-all pocket_tts   --collect-all torch   --collect-all triton   --collect-all nvidia   --collect-binaries nvidia   --add-data "voices:voices"   openai_tts_server.py
